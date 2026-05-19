@@ -228,10 +228,8 @@ body.light select option{background:var(--panel);color:var(--text)}
     </div>
     <div class="stats-bar" id="stats-bar">جاري التحميل…</div>
     <div class="apikey-bar">
-      <span style="color:#64748b;font-size:11px;white-space:nowrap">🔑</span>
-      <input type="password" id="apikey-input" placeholder="sk-ant-... clé API Anthropic" autocomplete="off">
-      <input type="text" id="proxy-input" placeholder="URL proxy (optionnel)" autocomplete="off"
-        style="direction:ltr;color:#7dd3fc;font-size:11px">
+      <span style="color:#64748b;font-size:11px;white-space:nowrap">🔑 Gemini:</span>
+      <input type="password" id="apikey-input" placeholder="AIza... (clé Gemini gratuite)" autocomplete="off">
       <button onclick="saveApiKey()">💾</button>
     </div>
 
@@ -740,22 +738,18 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-// ── API KEY ───────────────────────────────────────────────────────────────────
+// ── API KEY (Gemini gratuit) ──────────────────────────────────────────────────
 function saveApiKey() {
   const k = document.getElementById('apikey-input').value.trim();
-  const p = document.getElementById('proxy-input').value.trim();
   if (!k) { showToast('أدخل مفتاح API'); return; }
-  localStorage.setItem('anthropic_key', k);
-  if (p) localStorage.setItem('proxy_url', p);
+  localStorage.setItem('gemini_key', k);
   document.getElementById('apikey-input').value = '••••••••••••••••';
   showToast('✅ تم الحفظ');
 }
-function getApiKey()  { return localStorage.getItem('anthropic_key') || ''; }
-function getProxyUrl(){ return localStorage.getItem('proxy_url') || ''; }
+function getApiKey() { return localStorage.getItem('gemini_key') || ''; }
 
 window.addEventListener('load', () => {
   if (getApiKey()) document.getElementById('apikey-input').value = '••••••••••••••••';
-  if (getProxyUrl()) document.getElementById('proxy-input').value = getProxyUrl();
 });
 
 // ── COURANTS D'ANALYSE ────────────────────────────────────────────────────────
@@ -824,127 +818,56 @@ async function runAnalysis(courantId) {
   const a = rows[idx];
   if (!a || !courant) return;
 
-  const sname = SNAMES[a[0]] || '';
-  const ref = `سورة ${sname} (${a[0]}) — آية ${a[1]}`;
+  const sname   = SNAMES[a[0]] || '';
+  const ref     = 'سورة ' + sname + ' (' + a[0] + ') — آية ' + a[1];
   const ayaText = a[2];
-  const key = getApiKey().replace(/[\s\u200b\u200c\u200d\ufeff]/g, '').trim();
-  const proxyUrl = getProxyUrl().replace(/[\s\u200b\u200c\u200d\ufeff]/g, '').trim();
+  const key     = getApiKey().trim();
 
   const el = document.getElementById('analysis-' + idx);
   el.style.display = 'block';
   el.className = 'aya-analysis loading';
-  el.innerHTML = `<div class="courant-badge">${courant.icon} ${escHtml(courant.name)}</div>
-    <div id="analysis-status-${idx}">Analyse en cours...</div>`;
-  document.getElementById('card-' + idx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  el.innerHTML = '<div class="courant-badge">' + courant.icon + ' ' + escHtml(courant.name) + '</div>'
+    + '<div>Analyse en cours...</div>';
+  document.getElementById('card-' + idx)?.scrollIntoView({ behavior:'smooth', block:'nearest' });
 
-  const bodyObj = {
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1000,
-    messages: [{ role: 'user',
-      content: courant.prompt + '\n\nالآية: ' + ayaText + '\nالمرجع: ' + ref }]
-  };
-
-  if (!key || !key.startsWith('sk-')) {
+  if (!key || !key.startsWith('AIza')) {
     el.className = 'aya-analysis';
-    el.innerHTML = `<div class="courant-badge" style="background:#7f1d1d;color:#fca5a5">❌ clé API manquante</div>
-      <div style="color:#fca5a5;font-size:12px">Entrez votre clé API (sk-ant-...) et cliquez 💾</div>`;
+    el.innerHTML = '<div class="courant-badge" style="background:#7f1d1d;color:#fca5a5">❌ clé Gemini manquante</div>'
+      + '<div style="color:#fca5a5;font-size:12px">Entrez votre clé Gemini (AIza...) et cliquez 💾<br>'
+      + '<a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#7dd3fc">'
+      + '→ Obtenir une clé gratuite</a></div>';
     return;
   }
 
-  let bodyStr;
   try {
-    bodyStr = JSON.stringify(bodyObj);
-  } catch(e) {
-    el.className = 'aya-analysis';
-    el.innerHTML = `<div class="courant-badge" style="background:#7f1d1d;color:#fca5a5">❌ Erreur JSON</div><div style="color:#fca5a5">${escHtml(e.message)}</div>`;
-    return;
-  }
-  
-  // Ordre des endpoints à essayer
-  const endpoints = [];
+    const prompt = courant.prompt + '\n\nالآية: ' + ayaText + '\nالمرجع: ' + ref;
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error?.message || 'HTTP ' + r.status);
+    const text = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!text) throw new Error('Réponse vide');
 
-  // 1. Proxy utilisateur (Cloudflare Worker) — priorité absolue
-  if (proxyUrl && proxyUrl.startsWith('http')) {
-    endpoints.push({ url: proxyUrl, label: 'proxy personnel' });
-  }
-
-  // 2. Appel direct avec header browser (fonctionne depuis HTTPS comme GitHub Pages)
-  endpoints.push({
-    url: 'https://api.anthropic.com/v1/messages',
-    label: 'direct'
-  });
-
-  // 3. Proxies publics
-  endpoints.push(
-    { url: 'https://corsproxy.io/?https://api.anthropic.com/v1/messages', label: 'corsproxy.io' },
-    { url: 'https://proxy.cors.sh/https://api.anthropic.com/v1/messages',
-      label: 'cors.sh', extraHeaders: { 'x-cors-api-key': 'temp_demo' } }
-  );
-
-  let text = null;
-  let lastError = '';
-
-  for (const ep of endpoints) {
-    const status = document.getElementById('analysis-status-' + idx);
-    if (status) status.textContent = '⏳ ' + ep.label + '...';
-    try {
-      const safeHeaders = {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        };
-        if (ep.extraHeaders) {
-          Object.entries(ep.extraHeaders).forEach(([k,v]) => {
-            safeHeaders[k] = String(v).replace(/[^\x00-\xFF]/g, '');
-          });
-        }
-      const r = await fetch(ep.url, {
-        method: 'POST',
-        headers: safeHeaders,
-        body: bodyStr
-      });
-      if (r.ok) {
-        const d = await r.json();
-        text = d.content?.find(b => b.type === 'text')?.text || null;
-        if (text) break;
-      } else {
-        const raw = await r.text();
-        try {
-          const e = JSON.parse(raw);
-          lastError = e.error?.message || 'HTTP ' + r.status;
-        } catch {
-          lastError = 'HTTP ' + r.status + ': ' + raw.substring(0, 100);
-        }
-        if (r.status === 401 || r.status === 400) break;
-      }
-    } catch(e) { lastError = 'FETCH_ERROR: ' + e.message + ' | ' + e.name; }
-  }
-
-  if (text) {
     el.className = 'aya-analysis';
     el.dataset.courant = courant.icon + ' ' + courant.name;
     el.dataset.texte   = text;
-    el.innerHTML = `
-      <div class="courant-badge">${courant.icon} ${escHtml(courant.name)}</div>
-      <div style="white-space:pre-wrap">${escHtml(text)}</div>
-      <button class="copy-btn" style="margin-top:8px"
-        onclick="copyText(this.parentElement.dataset.texte)">📋 نسخ التحليل</button>`;
+    el.innerHTML = '<div class="courant-badge">' + courant.icon + ' ' + escHtml(courant.name) + '</div>'
+      + '<div style="white-space:pre-wrap">' + escHtml(text) + '</div>'
+      + '<button class="copy-btn" style="margin-top:8px" '
+      + 'onclick="copyText(this.parentElement.dataset.texte)">📋 نسخ التحليل</button>';
     showToast('✅ تم التحليل');
-  } else {
+
+  } catch(e) {
     el.className = 'aya-analysis';
-    el.innerHTML = `
-      <div class="courant-badge" style="background:#7f1d1d;color:#fca5a5">❌ تعذر الاتصال</div>
-      <div style="color:#fca5a5;font-size:12px;margin-bottom:10px">${escHtml(lastError)}</div>
-      <div style="color:#e2e8f0;font-size:12px;line-height:1.8;background:#0f172a;padding:10px;border-radius:8px">
-        <b style="color:var(--gold)">الحل — Solution :</b><br>
-        1️⃣ ابحث عن <b>Cloudflare Workers</b> وسجّل مجاناً<br>
-        2️⃣ انسخ محتوى ملف <code>worker.js</code> المرفق<br>
-        3️⃣ انشر Worker → احصل على رابط مثل:<br>
-        &nbsp;&nbsp;<code>https://xxx.workers.dev</code><br>
-        4️⃣ الصق الرابط في حقل <b>URL proxy</b> أعلاه → 💾
-      </div>`;
-    showToast('فشل — راجع التعليمات');
+    el.innerHTML = '<div class="courant-badge" style="background:#7f1d1d;color:#fca5a5">❌ ' + escHtml(e.message) + '</div>'
+      + '<div style="color:#7dd3fc;font-size:12px;margin-top:8px">'
+      + '<a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#7dd3fc">'
+      + '→ Vérifier votre clé sur Google AI Studio</a></div>';
+    showToast('خطأ: ' + e.message.substring(0, 40));
   }
 }
 
