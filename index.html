@@ -834,7 +834,7 @@ async function runAnalysis(courantId) {
   el.style.display = 'block';
   el.className = 'aya-analysis loading';
   el.innerHTML = `<div class="courant-badge">${courant.icon} ${escHtml(courant.name)}</div>
-    <div id="analysis-status-${idx}">⏳ جاري التحليل…</div>`;
+    <div id="analysis-status-${idx}">Analyse en cours...</div>`;
   document.getElementById('card-' + idx)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   const bodyObj = {
@@ -844,6 +844,8 @@ async function runAnalysis(courantId) {
       content: courant.prompt + '\n\nالآية: ' + ayaText + '\nالمرجع: ' + ref }]
   };
 
+  const bodyStr = JSON.stringify(bodyObj);
+  
   // Ordre des endpoints à essayer
   const endpoints = [];
 
@@ -870,7 +872,7 @@ async function runAnalysis(courantId) {
 
   for (const ep of endpoints) {
     const status = document.getElementById('analysis-status-' + idx);
-    if (status) status.textContent = '⏳ ' + ep.label + '…';
+    if (status) status.textContent = '⏳ ' + ep.label + '...';
     try {
       const r = await fetch(ep.url, {
         method: 'POST',
@@ -881,7 +883,7 @@ async function runAnalysis(courantId) {
           'anthropic-dangerous-direct-browser-access': 'true',
           ...(ep.extraHeaders || {})
         },
-        body: JSON.stringify(bodyObj)
+        body: bodyStr
       });
       if (r.ok) {
         const d = await r.json();
