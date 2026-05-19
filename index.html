@@ -903,10 +903,14 @@ async function runAnalysis(courantId) {
         text = d.content?.find(b => b.type === 'text')?.text || null;
         if (text) break;
       } else {
-        const e = await r.json().catch(() => ({}));
-        lastError = e.error?.message || 'HTTP ' + r.status;
-        // Si erreur auth (clé invalide) → inutile de continuer
-        if (r.status === 401) break;
+        const raw = await r.text();
+        try {
+          const e = JSON.parse(raw);
+          lastError = e.error?.message || 'HTTP ' + r.status;
+        } catch {
+          lastError = 'HTTP ' + r.status + ': ' + raw.substring(0, 100);
+        }
+        if (r.status === 401 || r.status === 400) break;
       }
     } catch(e) { lastError = e.message; }
   }
