@@ -848,15 +848,14 @@ async function runAnalysis(courantId) {
   const endpoints = [];
 
   // 1. Proxy utilisateur (Cloudflare Worker) — priorité absolue
-  if (proxyUrl) {
+  if (proxyUrl && proxyUrl.startsWith('http')) {
     endpoints.push({ url: proxyUrl, label: 'proxy personnel' });
   }
 
-  // 2. Appel direct avec header browser
+  // 2. Appel direct avec header browser (fonctionne depuis HTTPS comme GitHub Pages)
   endpoints.push({
     url: 'https://api.anthropic.com/v1/messages',
-    label: 'direct',
-    extraHeaders: { 'anthropic-dangerous-direct-browser-access': 'true' }
+    label: 'direct'
   });
 
   // 3. Proxies publics
@@ -879,6 +878,7 @@ async function runAnalysis(courantId) {
           'Content-Type': 'application/json',
           'x-api-key': key,
           'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
           ...(ep.extraHeaders || {})
         },
         body: JSON.stringify(bodyObj)
